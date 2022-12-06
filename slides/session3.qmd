@@ -1,0 +1,333 @@
+---
+title: "Session 3: Creating interactive graphics, with linking between plots"
+author: "H. Sherry Zhang and Prof. Di Cook"
+date: "2022-12-06"
+format: 
+  revealjs:
+    scrollable: true
+    slide-number: true
+    show-slide-number: all
+    aspectratio: 169
+    title-slide-attributes: 
+      data-background-image:  "https://raw.githubusercontent.com/numbats/WOMBAT2022/main/wombat-icon-web.png"
+      data-background-position: "top 0% right 0%"
+      data-background-size: "20% 20%"
+    multiplex: true
+    self-contained: true
+---
+
+# Goal of session 3
+
+```{r setup}
+library(knitr)
+options(htmltools.dir.version = FALSE)
+opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE, error=FALSE, fig.align = "center")
+library(cubble)
+library(dplyr)
+library(ggplot2)
+library(leaflet)
+library(crosstalk)
+library(plotly)
+library(colorspace)
+options(pillar.width = 100)
+```
+
+```{r echo = FALSE}
+clean <- climate_aus |>
+  filter(name == "melbourne airport") |>
+  bind_rows(climate_subset)  |>
+  face_temporal() |>
+  mutate(month = lubridate::month(date, label = TRUE, abbr = TRUE)) |>
+  group_by(month) |>
+  summarise(
+    tmax = mean(tmax, na.rm = TRUE),
+    tmin = mean(tmin, na.rm = TRUE),
+    diff = mean(tmax - tmin, na.rm = TRUE)
+    ) |>
+  face_spatial() |>
+  mutate(temp_diff_var = var(ts$diff, na.rm = TRUE))
+
+nested <- clean %>% SharedData$new(~id, group = "cubble")
+long <- clean |>
+  face_temporal() |>
+  unfold(temp_diff_var) |>
+  arrange(temp_diff_var) |>
+  SharedData$new(~id, group = "cubble")
+
+domain <- clean$temp_diff_var
+pal <- colorNumeric(
+  colorspace::sequential_hcl(
+    "Rocket",  n = 7, cmax = 90, rev = TRUE, c2 = 40, l2= 85, c1 = 20, l1 = 30),
+  domain = domain)
+
+map <- leaflet(nested, width = 300, height = 300) |>
+  addTiles() |>
+  addCircleMarkers(color = ~pal(domain), group = "a", radius = 0.1,
+                   popup = ~name, fillOpacity = 1, opacity = 1)
+
+ts_static <- long |> 
+  ggplot(aes(x = month, group = id,
+         fill = temp_diff_var, color = temp_diff_var
+         )) +
+  geom_ribbon(aes(ymin = tmin, ymax = tmax), size = 0.1, alpha = 0.3) +
+  geom_point(aes(y = tmax), size = 0.1) +
+  geom_point(aes(y = tmin), size = 0.1) +
+  colorspace::scale_fill_continuous_sequential(
+    "Rocket",  n_interp = 7, cmax = 90, rev = TRUE,
+    c2 = 40, l2= 85, c1 = 20, l1 = 30, name = "Var. temp. diff.") +
+  colorspace::scale_colour_continuous_sequential(
+    "Rocket",  n_interp = 7, cmax = 90, rev = TRUE,
+    c2 = 40, l2= 85, c1 = 20, l1 = 30, name = "Var. temp. diff.") +
+  labs(x = "Month", y = "Temperature") +
+  theme_bw() +
+  theme(
+    panel.grid.major = element_blank(),
+    legend.position = "bottom"
+    )
+ts_interactive <- ggplotly(ts_static, width = 600, height =300) |>
+    highlight(on = "plotly_selected", opacityDim = 0.012)
+bscols(map, ts_interactive, widths = c(4, 6))
+```
+
+## Interaction 1: Click on a point on the map 
+
+```{r echo = FALSE}
+knitr::include_graphics(here::here("figures/selection0.png"))
+```
+
+It will show the station name in the tooltip.
+
+## Interaction 2: Select a point on the time series
+
+```{r echo = FALSE}
+knitr::include_graphics(here::here("figures/selection1.png"))
+```
+
+It will link to the station on the map and you can then hover to see the station. 
+
+## Interaction 3: Click the <img src="https://cdn-icons-png.flaticon.com/128/54/54328.png" style="width:30px;height:30px;"> button on the map to activate area selection {.smaller}
+
+```{r echo = FALSE}
+#| out-width: 70%
+knitr::include_graphics(here::here("figures/selection2.png"))
+```
+
+Use the four corners and  <img src="https://cdn-icons-png.flaticon.com/128/5359/5359259.png" style="width:30px;height:30px;"> to adjust the size and position of the selection.
+
+## Roadmap
+
+```{r echo = FALSE}
+knitr::include_graphics(here::here("figures/interactive.png"))
+```
+
+
+## Data to start with 
+
+```{r echo = TRUE}
+#| code-fold: true
+# | output-location: column
+(clean <- cubble::climate_subset |>
+  face_temporal() |>
+  mutate(month = lubridate::month(date, label = TRUE, abbr = TRUE)) |>
+  group_by(month) |>
+  summarise(
+    tmax = mean(tmax, na.rm = TRUE),
+    tmin = mean(tmin, na.rm = TRUE),
+    diff = mean(tmax - tmin, na.rm = TRUE)
+    ) |>
+  face_spatial() |>
+  mutate(temp_diff_var = var(ts$diff, na.rm = TRUE)))
+```
+
+## Linking with crosstalk 
+
+```{r echo = TRUE}
+#| code-line-numbers: "|2,7"
+nested <- clean %>% 
+  SharedData$new(~id, group = "cubble")
+
+(long <- clean |>
+  face_temporal() |>
+  unfold(temp_diff_var) |>
+  SharedData$new(~id, group = "cubble"))
+```
+
+## Map with leaflet
+
+```{r}
+#| output-location: column
+leaflet(nested, 
+        width = 500, height = 500) |>
+  addTiles() |>
+  addCircleMarkers()
+```
+
+## Adding color and more aesthetics
+
+```{r}
+#| output-location: column
+#| code-line-numbers: "|1-3,7-8,14|15-17"
+domain <- clean$temp_diff_var
+pal <- colorNumeric(
+  colorspace::sequential_hcl(
+    "Rocket",  n = 7, cmax = 90, 
+    rev = TRUE, c2 = 40, l2= 85,
+    c1 = 20, l1 = 30
+    ),
+  domain = domain)
+
+(map <- leaflet(nested, 
+        width = 500, height = 500) |> 
+  addTiles() |> 
+  addCircleMarkers(
+    color = ~pal(domain), 
+    radius = 0.8,
+    popup = ~name, 
+    fillOpacity = 1, opacity = 1))
+```
+
+
+## Make temp. ribbons with ggplot
+
+```{r ts-static}
+#| code-fold: true
+(ts_static <- long %>% 
+  ggplot(aes(x = month, group = id,
+         fill = temp_diff_var, color = temp_diff_var
+         )) +
+  geom_ribbon(aes(ymin = tmin, ymax = tmax), size = 0.1, alpha = 0.3) +
+  geom_point(aes(y = tmax), size = 0.1) +
+  geom_point(aes(y = tmin), size = 0.1) +
+  colorspace::scale_fill_continuous_sequential(
+    "Rocket",  n_interp = 7, cmax = 90, rev = TRUE,
+    c2 = 40, l2= 85, c1 = 20, l1 = 30, name = "Var. temp. diff.") +
+  colorspace::scale_colour_continuous_sequential(
+    "Rocket",  n_interp = 7, cmax = 90, rev = TRUE,
+    c2 = 40, l2= 85, c1 = 20, l1 = 30, name = "Var. temp. diff.") +
+  labs(x = "Month", y = "Temperature") +
+  theme_bw() +
+  theme(
+    panel.grid.major = element_blank(),
+    legend.position = "bottom"
+    ))
+```
+
+## Make it interactive 
+
+```{r}
+(ts_interactive <- ggplotly(ts_static) %>% 
+    highlight(on = "plotly_selected", opacityDim = 0.012))
+```
+
+## Assemble map and temp. bands into a linked plot
+
+```{r eval = FALSE}
+bscols(map, ts_interactive, widths = c(4, 6))
+```
+
+```{r}
+#| code-fold: true
+clean <- climate_aus |>
+  filter(name == "melbourne airport") |>
+  bind_rows(climate_subset)  |>
+  face_temporal() |>
+  mutate(month = lubridate::month(date, label = TRUE, abbr = TRUE)) |>
+  group_by(month) |>
+  summarise(
+    tmax = mean(tmax, na.rm = TRUE),
+    tmin = mean(tmin, na.rm = TRUE),
+    diff = mean(tmax - tmin, na.rm = TRUE)
+    ) |>
+  face_spatial() |>
+  mutate(temp_diff_var = var(ts$diff, na.rm = TRUE))
+
+nested <- clean %>% SharedData$new(~id, group = "cubble")
+long <- clean |>
+  face_temporal() |>
+  unfold(temp_diff_var) |>
+  arrange(temp_diff_var) |>
+  SharedData$new(~id, group = "cubble")
+
+domain <- clean$temp_diff_var
+pal <- colorNumeric(
+  colorspace::sequential_hcl(
+    "Rocket",  n = 7, cmax = 90, rev = TRUE, c2 = 40, l2= 85, c1 = 20, l1 = 30),
+  domain = domain)
+
+map <- leaflet(nested, width = 300, height = 300) |>
+  addTiles() |>
+  addCircleMarkers(color = ~pal(domain), group = "a", radius = 0.1,
+                   popup = ~name, fillOpacity = 1, opacity = 1)
+
+ts_static <- long |> 
+  ggplot(aes(x = month, group = id,
+         fill = temp_diff_var, color = temp_diff_var
+         )) +
+  geom_ribbon(aes(ymin = tmin, ymax = tmax), size = 0.1, alpha = 0.3) +
+  geom_point(aes(y = tmax), size = 0.1) +
+  geom_point(aes(y = tmin), size = 0.1) +
+  colorspace::scale_fill_continuous_sequential(
+    "Rocket",  n_interp = 7, cmax = 90, rev = TRUE,
+    c2 = 40, l2= 85, c1 = 20, l1 = 30, name = "Var. temp. diff.") +
+  colorspace::scale_colour_continuous_sequential(
+    "Rocket",  n_interp = 7, cmax = 90, rev = TRUE,
+    c2 = 40, l2= 85, c1 = 20, l1 = 30, name = "Var. temp. diff.") +
+  labs(x = "Month", y = "Temperature") +
+  theme_bw() +
+  theme(
+    panel.grid.major = element_blank(),
+    legend.position = "bottom"
+    )
+ts_interactive <- ggplotly(ts_static, width = 600, height =300) |>
+    highlight(on = "plotly_selected", opacityDim = 0.012)
+bscols(map, ts_interactive, widths = c(4, 6))
+```
+
+## Save your interactive graphic
+
+  * save the full interactivity (html):
+  
+    * `htmltools::save_html(file = ...)`
+  
+  * save as a static image (png): 
+  
+    * Viewer > Export > Save as Image
+    * `webshot::webshot(url = ..., file = ...)`. You will need first to install `phantomjs` with  `webshot::install_phantomjs()`
+
+
+## Your time `r emo::ji("wrench")` {background-image="../figures/yt.jpg"}
+
+* Create two linked new SharedData instances with `SharedData$new(..., group = "...")`
+
+* Create a leaflet map with color on circles
+
+* Create a ggplot of the temperature bands and turn it into interactive with `ggplotly()`
+
+* Link the leaflet map with the ggplotly time series together via crosstalk `bscols()`
+
+<center> Meet me tomorrow in the WOMBAT! </center>
+
+
+## Further reading
+
+- leaflet: [https://rstudio.github.io/leaflet/](https://rstudio.github.io/leaflet/)
+
+- crosstalk: [https://rstudio.github.io/crosstalk/](https://rstudio.github.io/crosstalk/)
+
+- cubble: [https://huizezhang-sherry.github.io/cubble/](https://huizezhang-sherry.github.io/cubble/)
+
+- colorspace: [http://colorspace.r-forge.r-project.org/](http://colorspace.r-forge.r-project.org/)
+
+- JavaScript for R: [https://book.javascript-for-r.com/](https://book.javascript-for-r.com/)
+
+- Interactive web-based data visualization with R, plotly, and shiny: [https://plotly-r.com/](https://plotly-r.com/)
+
+## Acknowledgements
+  
+  - The slides are made with [Quarto](https://quarto.org/) 
+
+
+
+
+
+

@@ -1,0 +1,118 @@
+---
+title: "Wrangling spatio-temporal data with R"
+author: "H. Sherry Zhang and Prof. Di Cook"
+date: "2022-12-06"
+format: 
+  revealjs:
+    scrollable: true
+    slide-number: true
+    show-slide-number: all
+    title-slide-attributes: 
+      data-background-image: "https://raw.githubusercontent.com/numbats/WOMBAT2022/main/wombat-icon-web.png"
+      data-background-position: "top 0% right 0%"
+      data-background-size: "20% 20%"
+    multiplex: true
+    self-contained: true
+---
+
+# Hi from Sherry
+
+```{r}
+library(tidyverse)
+library(emoji)
+```
+
+::: columns
+::: {.column width="65%"}
+-   I'm a third-year PhD student at Monash University.
+
+-   I explore multivariate spatio-temporal data with data wrangling and visualisation tool  `r emojis %>% filter(name == "woman technologist: light skin tone") %>% pull(emoji)` `r emojis %>% filter(name == "woman swimming: medium-light skin tone") %>% head(1) %>% pull(emoji)`   
+:::
+
+::: {.column width="35%"}
+```{r}
+knitr::include_graphics(here::here("figures/headshot.jpg"))
+```
+
+
+:::
+:::
+
+# Hi from Di
+
+::: columns
+::: {.column width="65%"}
+
+- I'm a professor of Business Analytics at Monash University.
+
+- I have been working in data visualisation and teaching many tutorials! `r emojis %>% filter(name == "woman technologist: light skin tone") %>% pull(emoji)` `r emojis %>% filter(name == "ping pong") %>% pull(emoji)`
+
+:::
+
+::: {.column width="35%"}
+```{r}
+knitr::include_graphics(here::here("figures/headshot-di.png"))
+```
+
+
+:::
+:::
+
+# Hi from Swen
+
+::: columns
+::: {.column width="65%"}
+
+  - I'm a research fellow in statistics at Monash University.
+  - I work on visualising results on countries' health indices and Bayesian inferences.
+
+:::
+
+::: {.column width="35%"}
+```{r}
+knitr::include_graphics(here::here("figures/headshot-swen.jpg"))
+```
+
+
+:::
+:::
+
+# Hi from Fan
+
+::: columns
+::: {.column width="65%"}
+
+  - I'm a PhD candidate in Statistics at Monash University.
+  - I recently submitted my thesis about manifold learning on empirical probability distributions.
+
+:::
+
+::: {.column width="35%"}
+```{r}
+knitr::include_graphics(here::here("figures/headshot-fan.jpeg"))
+```
+
+
+:::
+:::
+
+# Access to materials:
+
+  * Workshop website: [https://sptm-tidy.numbat.space/](https://sptm-tidy.numbat.space/)
+  * GitHub repo: [https://github.com/numbats/sptm-tidy](https://github.com/numbats/sptm-tidy)
+    
+      > Go to the GitHub repo > Code > Download ZIP
+  
+```{r}
+#| fig-align: center
+knitr::include_graphics(here::here("figures/download.png"))
+```
+
+
+
+# Format of the sessions 
+
+  * 45 mins of me talking
+  * 15 mins of Your Time to try new things out (start with the exercises scripts) and ask questions
+  
+# Let's get started!

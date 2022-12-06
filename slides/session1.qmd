@@ -1,0 +1,481 @@
+---
+title: "Session 1: Importing various spatio-temporal data formats"
+author: "H. Sherry Zhang and Prof Di Cook"
+date: "2022-12-06"
+format: 
+  revealjs:
+    scrollable: true
+    slide-number: true
+    show-slide-number: all
+    title-slide-attributes: 
+      data-background-image: "https://raw.githubusercontent.com/numbats/WOMBAT2022/main/wombat-icon-web.png"
+      data-background-position: "top 0% right 0%"
+      data-background-size: "20% 20%"
+    multiplex: true
+    self-contained: true
+---
+
+## Roadmap 
+
+- Spatial/ spatio-temporal data format
+  - shape files
+  - tabular data
+  - NetCDF
+
+- 3 lessons I learnt from working on spatio-temporal data
+  - rendering `geom_sf` takes too long
+  - `Error ! st_crs(x) == st_crs(y)` 
+  - duplicates, duplicates, duplicates
+  
+## Spatio-temporal data
+
+```{r}
+library(knitr)
+options(htmltools.dir.version = FALSE)
+opts_chunk$set(echo = TRUE, eval = TRUE, warning = FALSE, message = FALSE, error=FALSE, fig.align = "center")
+options(pillar.print_max = 7, 
+        pillar.print_min = 7)
+library(tidyverse)
+library(sf)
+library(ozmaps)
+library(cubble)
+library(patchwork)
+library(tsibble)
+library(memer)
+```
+
+People can talk about a whole range of differnt things when they only refer to their data as spatio-temporal! 
+
+```{r}
+#| echo: false
+stations_sf <- cubble::climate_subset %>% select(-ts) %>% 
+  sf::st_as_sf(coords = c("long", "lat"), crs = 4283, remove = FALSE)
+
+oz <- ozmaps::abs_ste %>% filter(NAME != "Other Territories")
+oz_simp <- oz %>% rmapshaper::ms_simplify(keep = 0.05) 
+
+stations <- ggplot() +
+  geom_sf(data = oz_simp, fill = "grey95", color = "white") +
+  geom_point(data = stations_sf, aes(long,lat)) + 
+  ggthemes::theme_map() + 
+  ggtitle("Vector")
+
+raster <- GGally::nasa %>% 
+  filter(year == 1995) %>% 
+  ggplot(aes(x = long, y = lat, fill = temperature)) + 
+  geom_raster() + 
+  theme_bw() +  
+  theme(aspect.ratio = 1, legend.position = "none") + 
+  ggtitle("Raster")
+
+trajectory <- dplyr::storms %>% 
+  filter(status == "hurricane") %>% 
+  ggplot(aes(x = long, y = lat, group = interaction(name, year))) + 
+  geom_path(linewidth = 0.5) + 
+  theme_bw() + 
+  ggtitle("Trajectory") 
+```
+
+```{r vector-raster-traj}
+#| echo: false
+stations | raster | trajectory
+```
+
+
+The focus of today will be mostly on vector data, but we will also touch on raster slightly. 
+
+# Data format
+
+* Shape files
+* Tabular data:
+  * table with longitude, latitude columns
+  * long/ wide table of time series
+* NetCDF data
+
+## Spatial vector data: shape files (.shp) {.small}
+
+The function `sf::st_read()` will read a shape file into a simple feature object. 
+
+This is how a simple feature object looks like for Australia map data:
+
+```{r}
+ozmaps::abs_ste
+```
+
+:::footer
+[https://r-spatial.github.io/sf/](https://r-spatial.github.io/sf/)
+:::
+
+
+## Plot it with `geom_sf()`
+
+```{r}
+ozmaps::abs_ste %>% 
+  ggplot() + 
+  geom_sf(color = "white", fill = "grey90") + 
+  theme_void()
+```
+
+## Tabular data 
+
+Spatial table with long, lat columns:
+
+```{r}
+#| echo: false
+stations <- cubble::climate_subset %>% select(-ts)
+```
+
+```{r}
+stations
+```
+
+
+long table of time series:
+
+```{r}
+#| echo: false
+ts <- cubble::climate_subset %>% 
+  face_temporal() %>% 
+  filter(!is.na(tmax), !is.na(tmin)) %>% 
+  as_tibble()
+```
+
+```{r}
+ts
+```
+
+## Add stations on the base map:
+
+```{r}
+#| code-line-numbers: "4"
+ozmaps::abs_ste %>% 
+  ggplot() + 
+  geom_sf(color = "white", fill = "grey90") + 
+  geom_point(data = stations, aes(x = long, y = lat)) + 
+  theme_void()
+```
+
+## Spatial raster data: NetCDF (.nc)
+
+The Climate and Forecast (CF) Metadata Conventions prescribe how metadata should be documented for NetCDF objects:
+
+```{r}
+#| echo: TRUE
+path <- system.file("ncdf/era5-pressure.nc", package = "cubble")
+(era5_ncdf <- ncdf4::nc_open(path))
+```
+
+:::footer
+[https://cfconventions.org/](https://cfconventions.org/)
+:::
+
+## Extract variables & dimensions
+
+```{r}
+q <- ncdf4::ncvar_get(era5_ncdf, "q") 
+class(q)
+dim(q)
+
+long <- ncdf4::ncvar_get(era5_ncdf, "longitude")
+length(long)
+head(long)
+```
+
+
+## Three moments I scratch my head when wrangling and visualising spatio-temporal data
+
+```{r}
+#| echo: false
+knitr::include_graphics(here::here("figures/meme-intro.jpeg"))
+```
+
+
+## Moment 1: when waiting for a simple `geom_sf` to render ...
+
+```{r  meme-mom1}
+#| echo: false
+meme_get("PicardWTH") %>% 
+  meme_text_top("OH COME ON") %>% 
+  meme_text_bottom("how hard can it be to \nrender my polygons")
+```
+
+
+## Moment 1
+
+::::columns
+
+:::column
+
+```{r mom1-map-no-simp}
+oz <- ozmaps::abs_ste
+ggplot() +
+  geom_sf(data = oz)
+```
+
+```{r}
+#| eval: false
+#| echo: false
+ggplot2::benchplot(ggplot() + geom_sf(data = oz))
+```
+
+           step user.self sys.self elapsed
+    1 construct     0.002    0.000   0.002
+    2     build     0.093    0.005   0.098
+    3    render     0.063    0.005   0.070
+    4      draw     4.921    0.144   5.289
+    5     TOTAL     5.079    0.154   5.459
+:::
+
+:::column
+
+```{r mom1-map-w-simp}
+oz_simp <- oz %>% 
+  rmapshaper::ms_simplify(keep = 0.05) # or 
+# sf::st_simplify(dTolerance = 4000)
+ggplot() + geom_sf(data = oz_simp)
+```
+
+```{r}
+#| eval: false
+#| echo: false
+ggplot2::benchplot(ggplot() + geom_sf(data = oz_simp))
+```
+
+           step user.self sys.self elapsed
+    1 construct     0.002    0.000   0.002
+    2     build     0.074    0.003   0.076
+    3    render     0.034    0.001   0.034
+    4      draw     1.496    0.575   3.089
+    5     TOTAL     1.606    0.579   3.201
+:::
+
+::::
+
+## Reflection
+
+* This is a simplified example, when working with real data, rendering could take hours!
+
+* Making sure your polygons are at reasonable size would also saves your time on some geocomputation:
+    * i.e. `st_union()` combines feature geometries while solves the boundary issue (if two polygons share boundaries, they will be merged into one)
+    * imagine you throw it thousands of polygons to union and wonder why it takes so long...
+
+
+## Moment 2: when filtering an `sf` object based on another ...
+
+```{r meme-mom2}
+#| echo: false
+meme_get("HotlineDrake") %>% 
+  meme_text_drake("st_crs(x) == st_crs(y) is not TRUE", 
+                  "st_crs(DATA) <- st_crs(victoria)")
+```
+
+
+## Moment 2
+
+
+```{r}
+#| echo: false
+stations_sf <- cubble::climate_subset %>% select(-ts) %>% 
+  sf::st_as_sf(coords = c("long", "lat"), remove = FALSE)
+```
+
+```{r}
+stations_sf
+```
+
+## Moment 2 
+
+::::columns
+
+:::{.column width="48%"}
+```{r}
+#| eval: false
+#| echo: true
+victoria <- ozmaps::abs_ste %>% 
+  filter(NAME == "Victoria")
+stations_sf %>% 
+  st_filter(victoria) %>% 
+  nrow()
+```
+
+    Error in `stopifnot()`:
+    ! Can't compute `..1 = lengths(.predicate(x, y, ...)) > 0`.
+    Caused by error in `st_geos_binop()`:
+    ! st_crs(x) == st_crs(y) is not TRUE
+
+  - `ozmaps::abs_ste`
+    - Geodetic CRS:  GDA94
+  - `stations_sf` 
+   - CRS: NA
+
+:::
+
+:::{.column width="52%"}
+```{r}
+#| eval: false
+# option 1
+st_crs(stations_sf) <- 
+  st_crs(victoria)
+
+# option 2
+stations_sf <- RAW_DATA %>% 
+  st_as_sf(
+    crs = st_crs(victoria), ...
+    )
+
+# option 3
+stations_sf <- stations_sf %>% 
+  st_set_crs(st_crs(victoria))
+  
+```
+
+```{r}
+#| echo: false
+victoria <- oz %>% 
+  filter(NAME == "Victoria")
+
+stations_sf <- cubble::climate_subset %>% select(-ts) %>% 
+  sf::st_as_sf(coords = c("long", "lat"), crs = 4283, remove = FALSE)
+
+```
+
+
+```{r}
+stations_sf %>% 
+  st_filter(victoria) %>% 
+  nrow()
+```
+
+
+:::
+
+::::
+
+## Reflection
+
+* The problem itself here is not difficult to solve given the error message is informative, but behind it is the giant world of map projection: 
+
+  * unprojected map (long/lat) v.s. projected map
+  * we tend to get spatial data in the long/lat format, but need to remember to switch to a projected map when operations involve computing distance and area
+  
+  > try `st_crs(ozmaps::abs_ste)` if you're brave
+  
+## Reflection Cont.
+
+```{r projections}
+#| echo: false
+#| eval: true
+unproj_oz <- ozmaps::abs_ste %>% st_union() %>% st_simplify(dTolerance = 4000)
+proj_oz <- unproj_oz %>% st_transform("EPSG:28356")
+mollweide_oz <- proj_oz %>% st_transform("ESRI:54009")
+library(ggplot2)
+a1 <- paste("Area: ", st_area(unproj_oz) %>% units::set_units("km^2"))
+a2 <- paste("Area: ", st_area(proj_oz) %>% units::set_units("km^2"))
+a3 <- paste("Area: ", st_area(mollweide_oz) %>% units::set_units("km^2"))
+p1 <- ggplot() + 
+  geom_sf(data = unproj_oz) + 
+  ggtitle(paste0(a1), subtitle = "unprojected map (long/lat): GDA94")
+p2 <- ggplot() + 
+  geom_sf(data = proj_oz) + 
+  ggtitle(paste0(a2), subtitle = "projected coordinate for Australia: EPSG:28356") 
+p3 <- ggplot() + 
+  geom_sf(data = mollweide_oz) + 
+  ggtitle(paste0(a3), subtitle = "world mollweide: ESRI:54009")
+
+library(patchwork)
+p1 | p2 | p3
+#(p1 | p2) / (p3 | plot_spacer())
+```
+
+
+## Moment 3: when creating a tsibble out of my own data ... 
+
+```{r}
+#| echo: false 
+#| eval: true
+knitr::include_graphics(here::here("figures/meme-tsibble.jpeg"))
+```
+
+
+## Moment 3
+
+::::columns
+
+:::{.column width="55%"}
+```{r}
+#| eval: true
+#| echo: true
+set.seed(123)
+(harvest <- tibble(
+   year = c(2010, 2011, 2013, 
+            2011, 2012, 2014, 2014),
+   fruit = c(rep(c("kiwi", "cherry"), 
+                 each = 3),
+             "cherry"),
+   kilo = sample(1:10, size = 7)
+ ))
+```
+
+:::
+
+:::{.column width="45%"}
+
+
+```{r}
+#| eval: false
+#| echo: true
+harvest %>% 
+  as_tsibble(
+    key = fruit, 
+    index = year)
+
+```
+
+    Error in `validate_tsibble()`:
+    ! A valid tsibble must have distinct rows identified by key and index.
+    ℹ Please use `duplicates()` to check the duplicated rows.
+:::
+
+::::
+
+## Data cleaning first :) {.smaller}
+
+```{r}
+harvest %>% 
+  duplicates(key = fruit, 
+             index = year)
+harvest %>% 
+  dplyr::filter(!(year == 2014 & 
+             fruit == "cherry" & 
+             kilo == 9)) %>% 
+  as_tsibble(
+    key = fruit, 
+    index = year)
+```
+
+
+# Take-aways {.smaller}
+
+1. Make sure you understand what kind of spatio-temporal data you're working on/ talking about. What's the extent (range) and resolution (frequency) of your spatial (temporal) data.
+
+2. For data analysis, you don't need detailed polygons. You don't necessarily want to be a cartographer, simple polygons are good enough! Simplify it with `ms_simplify()` and `st_simplify()`.
+
+3. Take some care on the coordinates reference system (CRS) when working on multiple spatial data objects. `st_crs()` is your friend. 
+
+4. Check for duplicates may not be that important to you at this particular moment, but correcting them now saves you from the unexpected long way ahead.
+
+##  Your time `r emo::ji("wrench")` {background-image="../figures/yt.jpg"}
+
+* Plot the Victoria map from `ozmaps::abs_ste` with `geom_sf()`. Try different simplify parameters (`keep`/ `dTolerance`) to find the one works the best with the map. 
+
+* Plot the world map using data from the `rnaturalearth` package in the world mollweide projection
+
+* Resolve the duplication issue in the `raw` data (created in the exercise file) and cast it into a tsibble. 
+
+
+## Further reading {.smaller}
+
+ - Spatial Data Science with application to R: [https://r-spatial.org/book/](https://r-spatial.org/book/)
+  - sf: [https://r-spatial.github.io/sf/index.html](https://r-spatial.github.io/sf/index.html)
+  - tsibble: [https://tsibble.tidyverts.org/](https://tsibble.tidyverts.org/)
+  - ncdf4: [https://cran.r-project.org/web/packages/ncdf4/index.html](https://cran.r-project.org/web/packages/ncdf4/index.html)

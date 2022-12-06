@@ -1,0 +1,342 @@
+---
+title: "Session 2: Spatial and temporal operations, and basic mapping"
+author: "H. Sherry Zhang and Prof Di Cook"
+date: "2022-12-06"
+format: 
+  revealjs:
+    scrollable: true
+    slide-number: true
+    show-slide-number: all
+    title-slide-attributes: 
+      data-background-image: "https://raw.githubusercontent.com/numbats/WOMBAT2022/main/wombat-icon-web.png"
+      data-background-position: "top 0% right 0%"
+      data-background-size: "20% 20%"
+    multiplex: true
+    self-contained: true
+---
+
+## Roadmap
+
+```{r}
+library(knitr)
+options(htmltools.dir.version = FALSE)
+opts_chunk$set(echo = TRUE, eval = TRUE, error=FALSE, fig.align = "center")
+options(pillar.print_max = 5, 
+        pillar.print_min = 5)
+library(tidyverse)
+library(sf)
+library(ozmaps)
+library(cubble)
+library(tsibble)
+```
+
+1. Introduce the S3 class cubble to arrange spatio-temporal data 
+
+2. An example of importing COVID 19 data into cubble
+
+3. Operations on cubble in space and time
+
+4. Making glyph map to visualise Australian weather data
+
+## Cubble: a spatio-temporal vector data structure (1/2)
+
+```{r}
+#| echo: false
+knitr::include_graphics(here::here("figures/long-nested-form.png"))
+```
+
+:::footer
+[https://huizezhang-sherry.github.io/cubble/articles/cubble-design.html](https://huizezhang-sherry.github.io/cubble/articles/cubble-design.html)
+:::
+
+## Cubble: a spatio-temporal vector data structure (2/2)
+
+```{r}
+#| echo: false
+knitr::include_graphics(here::here("figures/cubble-operations.png"))
+```
+
+:::footer
+[https://huizezhang-sherry.github.io/cubble/articles/cubble-design.html](https://huizezhang-sherry.github.io/cubble/articles/cubble-design.html)
+:::
+
+
+
+## Cast your data into a cubble 
+
+```{r}
+#| echo: false
+#| eval: true
+stations_sf <- cubble::climate_subset %>% select(-ts) %>% 
+  sf::st_as_sf(coords = c("long", "lat"), crs = 4283, remove = FALSE)
+ts <- cubble::climate_subset %>% 
+  face_temporal() %>% 
+  filter(!is.na(tmax), !is.na(tmin)) %>% 
+  as_tibble()
+oz <- ozmaps::abs_ste %>% filter(NAME != "Other Territories")
+oz_simp <- oz %>% rmapshaper::ms_simplify(keep = 0.05) 
+```
+
+
+```{r}
+#| echo: true
+(cb <- as_cubble(
+  list(spatial = stations_sf, temporal = ts),
+  key = id, index = date, coords = c(long, lat)
+))
+```
+
+## Switch between the two forms {.smaller}
+
+::: columns
+::: column
+long form
+
+```{r echo = FALSE}
+options(width = 50)
+```
+
+```{r face-temporal, echo = TRUE}
+(cb_long <- cb %>% 
+  face_temporal())
+```
+
+:::
+
+::: column
+back to the nested form:
+
+```{r}
+#| echo: true
+(cb_back <- cb_long %>% 
+   face_spatial())
+
+identical(cb_back, cb)
+```
+
+```{r}
+#| echo: FALSE
+options(width = 100)
+```
+
+:::
+:::
+
+# Example 1: spatio-temporal COVID data
+
+## COVID counts and Vic. LGA boundaries {.smaller}
+
+```{r}
+load(here::here("data/covid.rda"))
+head(covid)
+```
+
+```{r}
+#install from remotes::install_github("runapp-aus/strayr")
+lga <- strayr::read_absmap("lga2018") |>
+  rename(lga = lga_name_2018) |>
+  filter(state_name_2016 == "Victoria")
+
+head(lga)
+```
+
+
+## Creating the cubble object {.smaller}
+
+```{r}
+#| warning: true
+#| message: true
+(cb <- as_cubble(
+  list(spatial = lga, temporal = covid),
+  key = lga, index = date, coords = c(cent_long, cent_lat)))
+```
+
+## Detect mismatching names {.smaller}
+
+```{r}
+(pair <- as_cubble(
+  list(spatial = lga, temporal = covid),
+  key = lga, index = date, coords = c(cent_long, cent_lat),
+output = "unmatch"))
+
+pair$paired %>% tail()
+```
+
+## Fix & rebuild {.smaller}
+
+```{r}
+lga <- lga |>
+  mutate(lga = ifelse(lga == "Kingston (C) (Vic.)", "Kingston (C)", lga),
+         lga = ifelse(lga == "Latrobe (C) (Vic.)", "Latrobe (C)", lga)) |>
+  filter(!lga %in% pair$others$spatial)
+
+covid <- covid |> filter(!lga %in% pair$others$temporal)
+
+(cb <- as_cubble(data = list(spatial = lga, temporal = covid),
+                key = lga, index = date, coords = c(cent_long, cent_lat)))
+
+
+```
+
+## Making a choropleth map
+
+```{r}
+cb %>% 
+  mutate(n = sum(ts$n, na.rm = TRUE)) %>% 
+  ggplot() + 
+  geom_sf(aes(fill = n)) + 
+  scale_fill_distiller(palette = "YlOrRd", direction = 1) + 
+  theme_void()
+```
+
+# Example 2: Spatio-temporal wrangling with temperature data
+
+## Subset on space 
+
+```{r}
+#| echo: true
+#| eval: true
+cb <- as_cubble(
+  list(spatial = stations_sf, temporal = ts),
+  key = id, index = date, coords = c(long, lat)
+)
+
+set.seed(0927)
+cb_space <- cb %>% slice_sample(n = 20)
+```
+
+```{r space-subset}
+#| echo: false
+#| eval: true
+ggplot() +
+  geom_sf(data = oz_simp, fill = "grey95", color = "white") +
+  geom_point(data = cb, aes(long,lat), color = "grey80") + 
+  geom_point(data = cb_space, aes(long, lat), color = "#4758AB") + 
+  ggthemes::theme_map() 
+```
+
+## Summarise in time 
+
+```{r echo = TRUE}
+#| code-line-numbers: "|2"
+(cb_tm <- cb_space %>% 
+  face_temporal() %>% 
+  mutate(month = lubridate::month(date)) %>% 
+  group_by(month) %>% 
+  summarise(tmax = mean(tmax, na.rm = TRUE))
+  )
+```
+
+## Access variables in the other form {.smaller}
+
+Reference temporal variables with `$`
+
+```{r}
+#| echo: true
+cb %>% 
+  mutate(avg_tmax = mean(ts$tmax, na.rm = TRUE))
+```
+
+. . .
+
+Move spatial variables into the long form
+
+```{r echo = TRUE}
+cb_long %>% unfold(long, lat)
+```
+
+## Explore temporal pattern across space {.text-bottom background-image="../figures/temporal-pattern-across-space.png" background-size="80% 90%" background-position="center"}
+
+```{css echo=FALSE}
+.text-bottom h2{
+  background-color: rgba(255, 255, 255, 0.6);
+  border-radius: 30px 30px 30px 30px;
+  color: black; 
+  position: absolute;
+  top: 78%;
+  left: 3%;
+  font-size: 1.5em
+}
+```
+
+:::{.notes}
+Sometimes, although we technically have spatio-temporal data, we may choose to fix a few stations to explore their temporal patterns, or select a few timestamps to explore their spatial distributions. 
+
+A more holistic approach is to explore the space and time simultaneously and now we will see an example of how to use cubble to explore temporal pattern across space in a glyph map.
+
+:::
+
+
+## Glyph map transformation 
+
+```{r}
+#| echo: false
+knitr::include_graphics(here::here("figures/glyph-steps.png"))
+```
+
+```{r eval = FALSE, echo = TRUE}
+DATA %>% 
+  ggplot() +
+  geom_glyph(
+    aes(x_major = X_MAJOR, x_minor = X_MINOR, 
+        y_major = Y_MAJOR, y_minor = Y_MINOR)) + 
+  ...
+```
+
+:::footer
+[https://huizezhang-sherry.github.io/cubble/articles/glyph.html](https://huizezhang-sherry.github.io/cubble/articles/glyph.html)
+:::
+
+## Making your first glyph map {.smaller}
+
+```{r glyphmap}
+#| output-location: column
+#| echo: true
+#| fig-width: 7
+#| fig-height: 7
+cb <- as_cubble(
+  list(spatial = stations_sf, temporal = ts),
+  key = id, index = date, coords = c(long, lat)
+)
+
+set.seed(0927)
+cb_glyph <- cb %>% 
+  slice_sample(n = 20) %>% 
+  face_temporal() %>% 
+  mutate(month = lubridate::month(date)) %>% 
+  group_by(month) %>% 
+  summarise(tmax = mean(tmax, na.rm = TRUE)) %>% 
+  unfold(long, lat)
+
+ggplot() + 
+  geom_sf(data = oz_simp, 
+          fill = "grey95", 
+          color = "white") +
+  geom_glyph(
+    data = cb_glyph,
+    aes(x_major = long, x_minor = month, 
+        y_major = lat, y_minor = tmax),
+    width = 2, height = 0.7) + 
+  ggthemes::theme_map()
+```
+
+## Your time `r emo::ji("wrench")` {.smaller background-image="../figures/yt.jpg"} 
+
+* Exercise 1: COVID data
+
+  * Use the `covid` data (see website) and `lga` data (see exercise script) to create a cubble object
+  * Find the mismatching pairs of the two data with argument `output = "unmatch"`
+  * Fix the mismatch and create a cubble object again
+
+* Exercise 2: Australia weather data
+
+  * Run the exercise script to get the `stations_sf` and `ts` data
+  * Create a cubble object from the two data
+  * Perform a spatial and temporal operation in the nested and long form
+  * Create a glyph map to visualise the maximum temperature
+  
+  
+## Further reading
+
+ - Ch 7 in Data Visualization: A practical introduction: [https://socviz.co/maps.html](https://socviz.co/maps.html)
+ - Cubble: [https://huizezhang-sherry.github.io/cubble/](https://huizezhang-sherry.github.io/cubble/)
